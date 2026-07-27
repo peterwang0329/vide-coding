@@ -8,6 +8,7 @@ import { apiFetch, apiFetchUpload, getToken } from "../utils/apiClient";
 interface Chapter {
   title: string;
   content: string;
+  isGaiden: boolean;
 }
 
 interface BookRecord {
@@ -102,22 +103,76 @@ export function NovelReader() {
     return () => document.removeEventListener("mousedown", handleClose);
   }, [showRecentBooks]);
 
-  // 章節分割邏輯抽出
+  // 取得外傳系列 key（null 表示非外傳）
+  const getGaidenSeriesKey = (title: string): string | null => {
+    if (!/外伝|外傳|特別SS|番外編/.test(title)) return null;
+    // 提取系列前綴：如「茶々視点外伝」、「伊達政宗視点外伝」等
+    const m = title.match(/^(.*?外伝|.*?外傳)/);
+    if (m) return m[1].trim();
+    // 沒有「外伝」前綴的特別SS/番外編 → 以完整標題為 key（每章唯一，不標註）
+    return title;
+  };
+
+  // 章節分割邏輯
   const splitTextIntoChapters = (text: string): Chapter[] => {
-    const chapterRegex = /(?=第[一二三四五六七八九十百千零0-9]+[章回節]\s|Chapter\s+\d+)/g;
+    const rawLines = text.split('\n');
+
+    // ── 主要分割法：偵測「【...】」後緊跟「---（5個以上）」的行組 ──
+    const chapterStarts: number[] = [];
+    for (let i = 0; i < rawLines.length - 1; i++) {
+      const curr = rawLines[i].replace(/\r$/, '').trim();
+      const next = rawLines[i + 1].replace(/\r$/, '').trim();
+      if (/^【.+】$/.test(curr) && /^-{5,}$/.test(next)) {
+        chapterStarts.push(i);
+      }
+    }
+
+    if (chapterStarts.length > 0) {
+      const rawChapters: { title: string; content: string }[] = [];
+
+      for (let ci = 0; ci < chapterStarts.length; ci++) {
+        const si = chapterStarts[ci];
+        const ei = ci + 1 < chapterStarts.length ? chapterStarts[ci + 1] : rawLines.length;
+        const titleRaw = rawLines[si].replace(/\r$/, '').trim();
+        const title = titleRaw.replace(/^【/, '').replace(/】$/, '').trim();
+        // 跳過標題行(si)與分隔線行(si+1)，其餘為內容
+        const contentLines = rawLines.slice(si + 2, ei);
+        const content = contentLines.map(l => l.replace(/\r$/, '')).join('\n').trim();
+        rawChapters.push({ title, content });
+      }
+
+      // 計算各外傳系列章節數
+      const seriesCount: Record<string, number> = {};
+      rawChapters.forEach(ch => {
+        const key = getGaidenSeriesKey(ch.title);
+        if (key !== null) seriesCount[key] = (seriesCount[key] || 0) + 1;
+      });
+
+      // 只有系列章節數 > 1 才標記為外傳
+      return rawChapters.map(ch => {
+        const key = getGaidenSeriesKey(ch.title);
+        const isGaiden = key !== null && (seriesCount[key] ?? 0) > 1;
+        return { title: ch.title, content: ch.content, isGaiden };
+      });
+    }
+
+    // ── 備用分割法：增強版 regex，支援全形數字、特殊符號數字、「話」等 ──
+    // 支援：第X章/回/節/話（X 可為半形、全形、漢字數字）、Chapter N
+    const chapterRegex = /(?=第[〇一二三四五六七八九十百千万零０-９0-9]+[章話回節][\s　\u3000]|第[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+話|Chapter\s+\d+)/g;
     const parts = text.split(chapterRegex);
 
     if (parts.length === 1) {
-      return [{ title: "開始閱讀", content: parts[0] }];
-    } else {
-      const parsedChapters = parts.map((part, index) => {
-        const lines = part.trim().split('\n');
-        const title = lines[0].trim() || `第 ${index + 1} 章`;
-        const content = lines.slice(1).join('\n').trim();
-        return { title, content };
-      });
-      return parsedChapters.filter(c => c.content.length > 0);
+      return [{ title: '開始閱讀', content: parts[0], isGaiden: false }];
     }
+
+    return parts
+      .map((part, index) => {
+        const ls = part.trim().split('\n');
+        const title = ls[0].trim() || `第 ${index + 1} 章`;
+        const content = ls.slice(1).join('\n').trim();
+        return { title, content, isGaiden: false };
+      })
+      .filter(c => c.content.length > 0);
   };
 
   // 當網址帶有 bookId 時，嘗試從後端下載檔案
@@ -381,8 +436,10 @@ export function NovelReader() {
                 <h4 style={{ marginTop: 0, marginBottom: "8px" }}>小說檔案格式要求：</h4>
                 <ul style={{ margin: 0, paddingLeft: "20px" }}>
                   <li>僅支援 <strong>.txt</strong> 純文字檔案格式。</li>
-                  <li>自動章節分割依賴於特定的標題格式，例如：<code>第X章</code>、<code>第X回</code>、<code>Chapter X</code>。</li>
-                  <li>若未檢測到符合格式的章節標題，系統將把整份文件視為單一章節。</li>
+                  <li><strong>優先格式</strong>：標題行 <code>【第X話 標題】</code> 後緊接 <code>---（五條以上）</code> 分隔線。</li>
+                  <li><strong>備用格式</strong>：<code>第X章</code>、<code>第X話</code>、<code>第X回</code>、<code>Chapter X</code>（X 支援半形、全形及漢字數字）。</li>
+                  <li>包含「外伝・特別SS・番外編」等關鍵字，且同系列超過 1 章的章節，將在列表中以 <strong style={{color:"hsl(280,70%,55%)"}}>外伝</strong> 標籤標註。</li>
+                  <li>若均未偵測到符合格式的標題，系統將把整份文件視為單一章節。</li>
                 </ul>
               </div>
             )}
@@ -627,9 +684,27 @@ export function NovelReader() {
                   <button
                     key={idx} id={`chapter-${idx}`}
                     onClick={() => { setCurrentChapter(idx); setShowChapterList(false); }}
-                    style={{ textAlign: "left", padding: "10px 14px", borderRadius: "6px", border: "none", background: currentChapter === idx ? (readerTheme === 'dark' ? '#333' : 'rgba(0,0,0,0.08)') : 'transparent', color: "inherit", cursor: "pointer", fontWeight: currentChapter === idx ? "bold" : "normal" }}
+                    style={{
+                      textAlign: "left", padding: "10px 14px", borderRadius: "6px", border: "none",
+                      background: currentChapter === idx ? (readerTheme === 'dark' ? '#333' : 'rgba(0,0,0,0.08)') : 'transparent',
+                      color: "inherit", cursor: "pointer", fontWeight: currentChapter === idx ? "bold" : "normal",
+                      display: "flex", flexDirection: "column", gap: "3px", alignItems: "flex-start", width: "100%"
+                    }}
                   >
-                    {chap.title}
+                    {chap.isGaiden && (
+                      <span style={{
+                        fontSize: "10px",
+                        background: "hsl(280, 65%, 55%)",
+                        color: "#fff",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        fontWeight: 700,
+                        letterSpacing: "0.05em",
+                        flexShrink: 0,
+                        lineHeight: 1.6,
+                      }}>外伝</span>
+                    )}
+                    <span style={{ lineHeight: 1.4 }}>{chap.title}</span>
                   </button>
                 ))}
               </div>
