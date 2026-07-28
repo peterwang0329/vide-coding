@@ -116,31 +116,29 @@ export function NovelReader() {
     const chapNumRegex = /(?:第[〇一二三四五六七八九十百千万零０-９0-9]+[章話回節]|第?[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+話)/;
     const match = title.match(new RegExp(`^(.*?)${chapNumRegex.source}`));
     
-    let prefix = "";
     if (match) {
-      prefix = match[1];
-    } else {
-      prefix = title;
-    }
+      // 標題中有章節號，提取編號前的部分
+      let prefix = match[1];
+      // 清理尾部符號
+      prefix = prefix.replace(/[・\s\-]+$/, '').trim();
 
-    // 清理尾部符號
-    prefix = prefix.replace(/[・\s\-]+$/, '').trim();
-
-    if (prefix) {
-      // 確保擷取出的 prefix 中確實包含外傳關鍵字
-      if (/外伝|外傳|番外編|番外篇|編|篇/.test(prefix)) {
-        if (prefix !== title) {
-          // 標題中有章節號，且前面有前綴，前綴就是 badge
-          return prefix === "番外編" ? "番外篇" : prefix;
+      if (prefix) {
+        // 確保擷取出的 prefix 中確實包含外傳關鍵字
+        if (/外伝|外傳|番外編|番外篇|編|篇/.test(prefix)) {
+          if (prefix !== title) {
+            // 標題中有章節號，且前面有前綴，前綴就是 badge
+            return prefix === "番外編" ? "番外篇" : prefix;
+          }
         }
-      } else {
-        // 前綴不包含外傳關鍵字（表示外傳字眼出現在章節號之後），依據需求不標示
-        return null;
       }
+      
+      // 如果找到了章節號，但不符合外傳前綴條件，就直接返回 null，不再往下判定
+      // （避免「第200話 特別編」或「前編」因為有章節號而被誤判成外傳）
+      return null;
     }
 
     // 針對沒有章節號、或前綴直接是標題的情況
-    const gaidenMatch = title.match(/^(.*?)(?:外伝|外傳)/);
+    const gaidenMatch = title.match(/^(.*?(?:外伝|外傳))/);
     if (gaidenMatch) {
       const p = gaidenMatch[1].trim();
       if (p) return p;
@@ -148,7 +146,7 @@ export function NovelReader() {
 
     if (title.includes("番外編") || title.includes("番外篇")) return "番外篇";
 
-    const henMatch = title.match(/^(.*?)(?:編|篇)/);
+    const henMatch = title.match(/^(.*?(?:編|篇))/);
     if (henMatch) {
       const p = henMatch[1].trim();
       if (p) return p;
