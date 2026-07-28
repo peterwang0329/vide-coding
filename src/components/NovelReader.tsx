@@ -105,51 +105,47 @@ export function NovelReader() {
 
   // 取得外傳 Badge 名稱（null 表示非外傳）
   const getGaidenBadgeName = (title: string): string | null => {
-    // 例外：特別SS (無論在哪都標示)
+    // 1. 例外：特別SS (無論在哪都標示)
     if (title.includes("特別SS") || title.includes("特別ＳＳ") || title.includes("SS") || title.includes("ＳＳ")) {
       return "特別SS";
     }
 
-    if (!/外伝|外傳|番外編|番外篇|編|篇/.test(title)) return null;
+    // 2. 檢查是否包含外傳關鍵字
+    const gaidenKeywords = /外伝|外傳|番外編|番外篇|編|篇/;
+    if (!gaidenKeywords.test(title)) return null;
 
-    // 尋找章節編號前的字串
-    const chapNumRegex = /(?:第[〇一二三四五六七八九十百千万零０-９0-9]+[章話回節]|第?[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+話)/;
-    const match = title.match(new RegExp(`^(.*?)${chapNumRegex.source}`));
+    // 3. 定義章節編號正則（加入所有圓圈數字 ⓪①-⑳㉑-㉟㊱-㊿）
+    const chapNumRegexStr = "(?:第[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+[章話回節]|第?[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+話)";
     
-    if (match) {
-      // 標題中有章節號，提取編號前的部分
-      let prefix = match[1];
-      // 清理尾部符號
-      prefix = prefix.replace(/[・\s\-]+$/, '').trim();
-
-      if (prefix) {
-        // 確保擷取出的 prefix 中確實包含外傳關鍵字
-        if (/外伝|外傳|番外編|番外篇|編|篇/.test(prefix)) {
-          if (prefix !== title) {
-            // 標題中有章節號，且前面有前綴，前綴就是 badge
-            return prefix === "番外編" ? "番外篇" : prefix;
-          }
-        }
-      }
-      
-      // 如果找到了章節號，但不符合外傳前綴條件，就直接返回 null，不再往下判定
-      // （避免「第200話 特別編」或「前編」因為有章節號而被誤判成外傳）
+    // 4. 檢查是否為正文主章節（開頭為章節編號，如「㉗話...」）
+    const cleanTitleForStart = title.replace(/^[【\s]+/, '');
+    if (new RegExp('^' + chapNumRegexStr).test(cleanTitleForStart)) {
       return null;
     }
 
-    // 針對沒有章節號、或前綴直接是標題的情況
-    const gaidenMatch = title.match(/^(.*?(?:外伝|外傳))/);
-    if (gaidenMatch) {
-      const p = gaidenMatch[1].trim();
-      if (p) return p;
+    // 5. 找出「真實」的章節編號（後面接著空白、・或結尾，以排除內嵌如「②④⓪話『」）
+    const realChapNumRegex = new RegExp(`(${chapNumRegexStr})(?=[\\s　・]|$)`);
+    const match = title.match(realChapNumRegex);
+
+    let prefix = "";
+    if (match) {
+      // 若有真實章節號，提取它前面的所有文字
+      const matchIndex = match.index || 0;
+      prefix = title.substring(0, matchIndex);
+    } else {
+      // 若無，整串標題作為前綴
+      prefix = title;
     }
 
-    if (title.includes("番外編") || title.includes("番外篇")) return "番外篇";
+    // 6. 刪除前綴中內嵌的「所有章節編號」（例如 ②④⓪話）
+    prefix = prefix.replace(new RegExp(chapNumRegexStr, 'g'), '');
 
-    const henMatch = title.match(/^(.*?(?:編|篇))/);
-    if (henMatch) {
-      const p = henMatch[1].trim();
-      if (p) return p;
+    // 7. 清理頭尾的括號與分隔符號
+    prefix = prefix.replace(/^[【\s]+/, '').replace(/[・\s\-】]+$/, '').trim();
+
+    // 8. 確保整理後的前綴依然包含外傳關鍵字
+    if (prefix && gaidenKeywords.test(prefix)) {
+      return prefix;
     }
 
     return null;
