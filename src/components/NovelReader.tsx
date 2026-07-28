@@ -105,25 +105,56 @@ export function NovelReader() {
 
   // 取得外傳 Badge 名稱（null 表示非外傳）
   const getGaidenBadgeName = (title: string): string | null => {
-    if (!/外伝|外傳|特別SS|番外編|番外篇|SS|編|篇/.test(title)) return null;
-
-    const gaidenMatch = title.match(/^(.*?)(?:外伝|外傳)/);
-    if (gaidenMatch) {
-      const prefix = gaidenMatch[1].trim();
-      if (prefix) return prefix;
+    // 例外：特別SS (無論在哪都標示)
+    if (title.includes("特別SS") || title.includes("特別ＳＳ") || title.includes("SS") || title.includes("ＳＳ")) {
+      return "特別SS";
     }
 
-    if (title.includes("番外編") || title.includes("番外篇")) return "番外";
-    if (title.includes("特別SS")) return "特別SS";
-    if (title.includes("SS")) return "SS";
+    if (!/外伝|外傳|番外編|番外篇|編|篇/.test(title)) return null;
+
+    // 尋找章節編號前的字串
+    const chapNumRegex = /(?:第[〇一二三四五六七八九十百千万零０-９0-9]+[章話回節]|第?[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+話)/;
+    const match = title.match(new RegExp(`^(.*?)${chapNumRegex.source}`));
+    
+    let prefix = "";
+    if (match) {
+      prefix = match[1];
+    } else {
+      prefix = title;
+    }
+
+    // 清理尾部符號
+    prefix = prefix.replace(/[・\s\-]+$/, '').trim();
+
+    if (prefix) {
+      // 確保擷取出的 prefix 中確實包含外傳關鍵字
+      if (/外伝|外傳|番外編|番外篇|編|篇/.test(prefix)) {
+        if (prefix !== title) {
+          // 標題中有章節號，且前面有前綴，前綴就是 badge
+          return prefix === "番外編" ? "番外篇" : prefix;
+        }
+      } else {
+        // 前綴不包含外傳關鍵字（表示外傳字眼出現在章節號之後），依據需求不標示
+        return null;
+      }
+    }
+
+    // 針對沒有章節號、或前綴直接是標題的情況
+    const gaidenMatch = title.match(/^(.*?)(?:外伝|外傳)/);
+    if (gaidenMatch) {
+      const p = gaidenMatch[1].trim();
+      if (p) return p;
+    }
+
+    if (title.includes("番外編") || title.includes("番外篇")) return "番外篇";
 
     const henMatch = title.match(/^(.*?)(?:編|篇)/);
     if (henMatch) {
-      const prefix = henMatch[1].trim();
-      if (prefix) return prefix;
+      const p = henMatch[1].trim();
+      if (p) return p;
     }
 
-    return "外傳";
+    return null;
   };
 
   // 章節分割邏輯
