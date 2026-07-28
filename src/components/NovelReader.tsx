@@ -21,6 +21,9 @@ interface BookRecord {
   reader_theme: string;
 }
 
+// 統一的章節編號正則字串，包含中文數字、圓圈數字及 Chapter N 格式，確保外傳判定與章節分割範圍一致
+const CHAP_NUM_REGEX_STR = "(?:第[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+[章話回節]|第?[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+話|Chapter\\s+\\d+)";
+
 export function NovelReader() {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -114,8 +117,8 @@ export function NovelReader() {
     const gaidenKeywords = /外伝|外傳|番外編|番外篇|編|篇/;
     if (!gaidenKeywords.test(title)) return null;
 
-    // 3. 定義章節編號正則（加入所有圓圈數字 ⓪①-⑳㉑-㉟㊱-㊿）
-    const chapNumRegexStr = "(?:第[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+[章話回節]|第?[〇一二三四五六七八九十百千万零０-９0-9⓪①-⑳㉑-㉟㊱-㊿]+話)";
+    // 3. 定義章節編號正則（加入所有圓圈數字 ⓪①-⑳㉑-㉟㊱-㊿，並使用全域定義與分割邏輯同步）
+    const chapNumRegexStr = CHAP_NUM_REGEX_STR;
     
     // 4. 檢查是否為正文主章節（開頭為章節編號，如「㉗話...」）
     const cleanTitleForStart = title.replace(/^[【\s]+/, '');
@@ -184,7 +187,7 @@ export function NovelReader() {
 
     // ── 備用分割法：增強版 regex，支援全形數字、特殊符號數字、「話」等 ──
     // 支援：第X章/回/節/話（X 可為半形、全形、漢字數字）、Chapter N
-    const chapterRegex = /(?=第[〇一二三四五六七八九十百千万零０-９0-9]+[章話回節][\s　\u3000]|第[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]+話|Chapter\s+\d+)/g;
+    const chapterRegex = new RegExp(`\\r?\\n(?=\\s*${CHAP_NUM_REGEX_STR})`, 'g');
     const parts = text.split(chapterRegex);
 
     if (parts.length === 1) {
@@ -463,7 +466,7 @@ export function NovelReader() {
                 <ul style={{ margin: 0, paddingLeft: "20px" }}>
                   <li>僅支援 <strong>.txt</strong> 純文字檔案格式。</li>
                   <li><strong>優先格式</strong>：標題行 <code>【第X話 標題】</code> 後緊接 <code>---（五條以上）</code> 分隔線。</li>
-                  <li><strong>備用格式</strong>：<code>第X章</code>、<code>第X話</code>、<code>第X回</code>、<code>Chapter X</code>（X 支援半形、全形及漢字數字）。</li>
+                  <li><strong>備用格式</strong>：<code>第X章</code>、<code>第X話</code>、<code>第X回</code>、<code>Chapter X</code>（X 支援半形、全形及漢字數字，標題需位於新的一行）。</li>
                   <li>包含「外伝・外傳・特別SS・番外編・篇」等關鍵字的章節，將在列表中自動擷取系列名並以標籤標註。</li>
                   <li>若均未偵測到符合格式的標題，系統將把整份文件視為單一章節。</li>
                 </ul>
