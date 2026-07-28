@@ -8,7 +8,7 @@ import { apiFetch, apiFetchUpload, getToken } from "../utils/apiClient";
 interface Chapter {
   title: string;
   content: string;
-  isGaiden: boolean;
+  gaidenBadge?: string | null;
 }
 
 interface BookRecord {
@@ -103,14 +103,27 @@ export function NovelReader() {
     return () => document.removeEventListener("mousedown", handleClose);
   }, [showRecentBooks]);
 
-  // 取得外傳系列 key（null 表示非外傳）
-  const getGaidenSeriesKey = (title: string): string | null => {
-    if (!/外伝|外傳|特別SS|番外編/.test(title)) return null;
-    // 提取系列前綴：如「茶々視点外伝」、「伊達政宗視点外伝」等
-    const m = title.match(/^(.*?外伝|.*?外傳)/);
-    if (m) return m[1].trim();
-    // 沒有「外伝」前綴的特別SS/番外編 → 以完整標題為 key（每章唯一，不標註）
-    return title;
+  // 取得外傳 Badge 名稱（null 表示非外傳）
+  const getGaidenBadgeName = (title: string): string | null => {
+    if (!/外伝|外傳|特別SS|番外編|番外篇|SS|編|篇/.test(title)) return null;
+
+    const gaidenMatch = title.match(/^(.*?)(?:外伝|外傳)/);
+    if (gaidenMatch) {
+      const prefix = gaidenMatch[1].trim();
+      if (prefix) return prefix;
+    }
+
+    if (title.includes("番外編") || title.includes("番外篇")) return "番外";
+    if (title.includes("特別SS")) return "特別SS";
+    if (title.includes("SS")) return "SS";
+
+    const henMatch = title.match(/^(.*?)(?:編|篇)/);
+    if (henMatch) {
+      const prefix = henMatch[1].trim();
+      if (prefix) return prefix;
+    }
+
+    return "外傳";
   };
 
   // 章節分割邏輯
@@ -128,7 +141,7 @@ export function NovelReader() {
     }
 
     if (chapterStarts.length > 0) {
-      const rawChapters: { title: string; content: string }[] = [];
+      const rawChapters: Chapter[] = [];
 
       for (let ci = 0; ci < chapterStarts.length; ci++) {
         const si = chapterStarts[ci];
@@ -138,22 +151,10 @@ export function NovelReader() {
         // 跳過標題行(si)與分隔線行(si+1)，其餘為內容
         const contentLines = rawLines.slice(si + 2, ei);
         const content = contentLines.map(l => l.replace(/\r$/, '')).join('\n').trim();
-        rawChapters.push({ title, content });
+        rawChapters.push({ title, content, gaidenBadge: getGaidenBadgeName(title) });
       }
 
-      // 計算各外傳系列章節數
-      const seriesCount: Record<string, number> = {};
-      rawChapters.forEach(ch => {
-        const key = getGaidenSeriesKey(ch.title);
-        if (key !== null) seriesCount[key] = (seriesCount[key] || 0) + 1;
-      });
-
-      // 只有系列章節數 > 1 才標記為外傳
-      return rawChapters.map(ch => {
-        const key = getGaidenSeriesKey(ch.title);
-        const isGaiden = key !== null && (seriesCount[key] ?? 0) > 1;
-        return { title: ch.title, content: ch.content, isGaiden };
-      });
+      return rawChapters;
     }
 
     // ── 備用分割法：增強版 regex，支援全形數字、特殊符號數字、「話」等 ──
@@ -162,7 +163,7 @@ export function NovelReader() {
     const parts = text.split(chapterRegex);
 
     if (parts.length === 1) {
-      return [{ title: '開始閱讀', content: parts[0], isGaiden: false }];
+      return [{ title: '開始閱讀', content: parts[0], gaidenBadge: null }];
     }
 
     return parts
@@ -170,7 +171,7 @@ export function NovelReader() {
         const ls = part.trim().split('\n');
         const title = ls[0].trim() || `第 ${index + 1} 章`;
         const content = ls.slice(1).join('\n').trim();
-        return { title, content, isGaiden: false };
+        return { title, content, gaidenBadge: getGaidenBadgeName(title) };
       })
       .filter(c => c.content.length > 0);
   };
@@ -438,7 +439,7 @@ export function NovelReader() {
                   <li>僅支援 <strong>.txt</strong> 純文字檔案格式。</li>
                   <li><strong>優先格式</strong>：標題行 <code>【第X話 標題】</code> 後緊接 <code>---（五條以上）</code> 分隔線。</li>
                   <li><strong>備用格式</strong>：<code>第X章</code>、<code>第X話</code>、<code>第X回</code>、<code>Chapter X</code>（X 支援半形、全形及漢字數字）。</li>
-                  <li>包含「外伝・特別SS・番外編」等關鍵字，且同系列超過 1 章的章節，將在列表中以 <strong style={{color:"hsl(280,70%,55%)"}}>外伝</strong> 標籤標註。</li>
+                  <li>包含「外伝・外傳・特別SS・番外編・篇」等關鍵字的章節，將在列表中自動擷取系列名並以標籤標註。</li>
                   <li>若均未偵測到符合格式的標題，系統將把整份文件視為單一章節。</li>
                 </ul>
               </div>
@@ -691,7 +692,7 @@ export function NovelReader() {
                       display: "flex", flexDirection: "column", gap: "3px", alignItems: "flex-start", width: "100%"
                     }}
                   >
-                    {chap.isGaiden && (
+                    {chap.gaidenBadge && (
                       <span style={{
                         fontSize: "10px",
                         background: "hsl(280, 65%, 55%)",
@@ -702,7 +703,7 @@ export function NovelReader() {
                         letterSpacing: "0.05em",
                         flexShrink: 0,
                         lineHeight: 1.6,
-                      }}>外伝</span>
+                      }}>{chap.gaidenBadge}</span>
                     )}
                     <span style={{ lineHeight: 1.4 }}>{chap.title}</span>
                   </button>
