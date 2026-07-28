@@ -59,10 +59,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const userData = await apiFetch<UserInfo>("/api/auth/me");
         setUser(userData);
-      } catch {
-        // Token 無效，清除
-        removeToken();
-        setUser(null);
+      } catch (err: any) {
+        // 避免在網路不穩或伺服器錯誤 (5xx) 時誤刪 Token
+        // apiClient 在 401 時已會自動清除 Token
+        if (err.status === 401 || !getToken()) {
+          removeToken();
+          setUser(null);
+        } else {
+          console.error("驗證 Token 失敗 (網路或伺服器錯誤):", err);
+          setUser(null); // 無法取得使用者資料，暫時視為未登入，但不清除 Token
+        }
       } finally {
         setIsLoading(false);
       }
